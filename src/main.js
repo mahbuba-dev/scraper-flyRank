@@ -70,10 +70,16 @@ async function main() {
 
   const links = [];
 
-  $("article.product_pod h3 a").each((index, element) => {
-    const href = $(element).attr("href");
-    links.push(href);
-  });
+ $("article.product_pod h3 a").each((index, element) => {
+  const href = $(element).attr("href");
+
+  const absoluteUrl = new URL(
+    href,
+    PAGE_URL
+  ).href;
+
+  links.push(absoluteUrl);
+});
 
   console.log(`Books found: ${links.length}`);
   console.log(links);
