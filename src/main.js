@@ -146,6 +146,24 @@ if (bookHtml) {
   const title = $(".product_main h1").text().trim();
 
   console.log("Book title:", title);
+
+  const priceText = $(".product_main .price_color").text().trim();
+
+console.log("Price:", priceText);
+
+const availabilityText = $(".product_main .availability")
+  .text()
+  .trim();
+
+console.log("Availability:", availabilityText);
+
+// Rating
+const ratingText = $(".product_main .star-rating")
+  .attr("class")
+  .split(" ")
+  .filter((className) => className !== "star-rating")[0];
+
+console.log("Rating:", ratingText);
 }
 }
 
