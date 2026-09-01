@@ -1,5 +1,7 @@
+
 const fs = require("fs");
 const path = require("path");
+const cheerio = require("cheerio");
 
 const PAGE_URL = "https://books.toscrape.com/catalogue/page-1.html";
 
@@ -59,4 +61,22 @@ async function fetchCataloguePage() {
   }
 }
 
-fetchCataloguePage();
+
+
+async function main() {
+  const html = await fetchCataloguePage();
+
+  const $ = cheerio.load(html);
+
+  const links = [];
+
+  $("article.product_pod h3 a").each((index, element) => {
+    const href = $(element).attr("href");
+    links.push(href);
+  });
+
+  console.log(`Books found: ${links.length}`);
+  console.log(links);
+}
+
+main();
