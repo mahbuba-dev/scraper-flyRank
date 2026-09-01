@@ -130,6 +130,59 @@ async function main() {
   console.log(`catalogue_pages=${pageCount}`);
   console.log(`discovered=${allBookLinks.length}`);
   console.log(`unique_urls=${uniqueBookLinks.length}`);
+  console.log("\n--- FIRST BOOK ---");
+console.log(uniqueBookLinks[0]);
+
+
+const firstBookUrl = uniqueBookLinks[0];
+
+const bookHtml = await fetchBookPage(firstBookUrl);
+
+if (bookHtml) {
+  // Load the book HTML with Cheerio
+  const $ = cheerio.load(bookHtml);
+
+  // Find the book title
+  const title = $(".product_main h1").text().trim();
+
+  console.log("Book title:", title);
+}
 }
 
 main();
+
+
+async function fetchBookPage(bookUrl) {
+  console.log(`\nFETCHING BOOK: ${bookUrl}`);
+
+  const controller = new AbortController();
+
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, 10000);
+
+  try {
+    const response = await fetch(bookUrl, {
+      headers: {
+        "User-Agent": USER_AGENT,
+      },
+      signal: controller.signal,
+    });
+
+    if (response.status !== 200) {
+      throw new Error(`Fetch failed with status: ${response.status}`);
+    }
+
+    const html = await response.text();
+
+    console.log(`Status: ${response.status}`);
+    console.log(`Response size: ${html.length} bytes`);
+
+    return html;
+  } catch (error) {
+    console.error("Book fetch error:", error.message);
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
