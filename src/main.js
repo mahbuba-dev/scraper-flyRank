@@ -74,6 +74,83 @@ async function fetchCataloguePage(pageUrl) {
   }
 }
 
+
+
+async function fetchBookPage(bookUrl) {
+  console.log(`\nFETCHING BOOK: ${bookUrl}`);
+
+  const controller = new AbortController();
+
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, 10000);
+
+  try {
+    const response = await fetch(bookUrl, {
+      headers: {
+        "User-Agent": USER_AGENT,
+      },
+      signal: controller.signal,
+    });
+
+    if (response.status !== 200) {
+      throw new Error(`Fetch failed with status: ${response.status}`);
+    }
+
+    const html = await response.text();
+
+    console.log(`Status: ${response.status}`);
+    console.log(`Response size: ${html.length} bytes`);
+
+    return html;
+  } catch (error) {
+    console.error("Book fetch error:", error.message);
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+
+function extractBookDetails(bookHtml, productUrl, sourcePage) {
+  const $ = cheerio.load(bookHtml);
+
+  const title = $(".product_main h1").text().trim();
+
+  const priceText = $(".product_main .price_color")
+    .text()
+    .trim();
+
+  const availabilityText = $(".product_main .availability")
+    .text()
+    .trim();
+
+  const className = $(".product_main .star-rating").attr("class");
+
+  const ratingText = className
+    ? className
+        .split(" ")
+        .filter((className) => className !== "star-rating")[0]
+    : null;
+
+  const descriptionElement = $("#product_description").next("p");
+
+  const description = descriptionElement.length
+    ? descriptionElement.text().trim()
+    : null;
+
+  return {
+    title,
+    product_url: productUrl,
+    price_text: priceText,
+    availability_text: availabilityText,
+    rating_text: ratingText,
+    description,
+    source_page: sourcePage,
+    fetched_at: new Date().toISOString(),
+  };
+}
+
 async function main() {
   let currentPageUrl = START_URL;
   let pageCount = 0;
@@ -134,73 +211,35 @@ async function main() {
 console.log(uniqueBookLinks[0]);
 
 
-const firstBookUrl = uniqueBookLinks[0];
+const rawRecords = [];
 
-const bookHtml = await fetchBookPage(firstBookUrl);
+for (const bookUrl of uniqueBookLinks) {
+  const bookHtml = await fetchBookPage(bookUrl);
 
-if (bookHtml) {
-  // Load the book HTML with Cheerio
-  const $ = cheerio.load(bookHtml);
+  if (bookHtml) {
+    const rawRecord = extractBookDetails(
+      bookHtml,
+      bookUrl,
+      START_URL
+    );
 
-  // Find the book title
-  const title = $(".product_main h1").text().trim();
+    rawRecords.push(rawRecord);
 
-  console.log("Book title:", title);
-
-  const priceText = $(".product_main .price_color").text().trim();
-
-console.log("Price:", priceText);
-
-const availabilityText = $(".product_main .availability")
-  .text()
-  .trim();
-
-console.log("Availability:", availabilityText);
-
-// Rating
-const ratingText = $(".product_main .star-rating")
-  .attr("class")
-  .split(" ")
-  .filter((className) => className !== "star-rating")[0];
-
-console.log("Rating:", ratingText);
+    console.log("\n--- BOOK ---");
+    console.log(rawRecord.title);
+  }
 }
+
+console.log("\n--- FINAL SUMMARY ---");
+console.log(`detail_pages=${rawRecords.length}`);
+
 }
+
+
+
+
+
 
 main();
 
 
-async function fetchBookPage(bookUrl) {
-  console.log(`\nFETCHING BOOK: ${bookUrl}`);
-
-  const controller = new AbortController();
-
-  const timeoutId = setTimeout(() => {
-    controller.abort();
-  }, 10000);
-
-  try {
-    const response = await fetch(bookUrl, {
-      headers: {
-        "User-Agent": USER_AGENT,
-      },
-      signal: controller.signal,
-    });
-
-    if (response.status !== 200) {
-      throw new Error(`Fetch failed with status: ${response.status}`);
-    }
-
-    const html = await response.text();
-
-    console.log(`Status: ${response.status}`);
-    console.log(`Response size: ${html.length} bytes`);
-
-    return html;
-  } catch (error) {
-    console.error("Book fetch error:", error.message);
-    return null;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
