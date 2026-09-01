@@ -2,18 +2,29 @@ const fs = require("fs");
 const path = require("path");
 const cheerio = require("cheerio");
 
-const PAGE_URL = "https://books.toscrape.com/catalogue/page-1.html";
+const START_URL =
+  "https://books.toscrape.com/catalogue/page-1.html";
 
 const CACHE_DIR = path.join(__dirname, "..", "cache");
-const CACHE_FILE = path.join(CACHE_DIR, "catalogue-page-1.html");
 
 const USER_AGENT = "FlyRankInternship-A9/1.0";
 
-// Fetch a catalogue page
+function getCacheFile(pageUrl) {
+  const url = new URL(pageUrl);
+  const fileName = url.pathname
+    .split("/")
+    .pop()
+    .replace(".html", "");
+
+  return path.join(CACHE_DIR, `${fileName}.html`);
+}
+
 async function fetchCataloguePage(pageUrl) {
-  // বর্তমানে শুধু Page 1-এর cache check করছি
-  if (fs.existsSync(CACHE_FILE) && pageUrl === PAGE_URL) {
-    const html = fs.readFileSync(CACHE_FILE, "utf-8");
+  const cacheFile = getCacheFile(pageUrl);
+
+  // Check cache first
+  if (fs.existsSync(cacheFile)) {
+    const html = fs.readFileSync(cacheFile, "utf-8");
 
     console.log("CACHE HIT");
     console.log(`Response size: ${html.length} bytes`);
@@ -21,15 +32,14 @@ async function fetchCataloguePage(pageUrl) {
     return html;
   }
 
-  console.log("FETCH");
+  console.log(`FETCH: ${pageUrl}`);
 
-  // Create cache folder if it doesn't exist
+  // Create cache folder if needed
   fs.mkdirSync(CACHE_DIR, { recursive: true });
 
-  // Create controller for timeout
+  // Create timeout controller
   const controller = new AbortController();
 
-  // Stop request after 10 seconds
   const timeoutId = setTimeout(() => {
     controller.abort();
   }, 10000);
@@ -42,18 +52,15 @@ async function fetchCataloguePage(pageUrl) {
       signal: controller.signal,
     });
 
-    // Only accept status 200
+    // Only accept successful response
     if (response.status !== 200) {
       throw new Error(`Fetch failed with status: ${response.status}`);
     }
 
-    // Get HTML from response
     const html = await response.text();
 
-    // Save Page 1 HTML in cache
-    if (pageUrl === PAGE_URL) {
-      fs.writeFileSync(CACHE_FILE, html, "utf-8");
-    }
+    // Save page in cache
+    fs.writeFileSync(cacheFile, html, "utf-8");
 
     console.log(`Status: ${response.status}`);
     console.log(`Response size: ${html.length} bytes`);
@@ -61,48 +68,68 @@ async function fetchCataloguePage(pageUrl) {
     return html;
   } catch (error) {
     console.error("Error:", error.message);
+    return null;
   } finally {
     clearTimeout(timeoutId);
   }
 }
 
 async function main() {
-  // Current catalogue page
-  let currentPageUrl = PAGE_URL;
+  let currentPageUrl = START_URL;
+  let pageCount = 0;
 
-  // Fetch Page 1
-  const html = await fetchCataloguePage(currentPageUrl);
+  const allBookLinks = [];
 
-  // Load HTML with Cheerio
-  const $ = cheerio.load(html);
+  while (currentPageUrl && pageCount < 3) {
+    console.log(`\n--- Catalogue Page ${pageCount + 1} ---`);
 
-  // Store book links
-  const links = [];
+    const html = await fetchCataloguePage(currentPageUrl);
 
-  // Find all book links
-  $("article.product_pod h3 a").each((index, element) => {
-    const href = $(element).attr("href");
+    // Stop if page could not be fetched
+    if (!html) {
+      break;
+    }
 
-    // Convert relative URL to absolute URL
-    const absoluteUrl = new URL(href, currentPageUrl).href;
+    // Load page HTML
+    const $ = cheerio.load(html);
 
-    links.push(absoluteUrl);
-  });
+    // Find all book links on this page
+    $("article.product_pod h3 a").each((index, element) => {
+      const href = $(element).attr("href");
 
-  // Print number of books
-  console.log(`Books found: ${links.length}`);
+      if (href) {
+        const absoluteUrl = new URL(
+          href,
+          currentPageUrl
+        ).href;
 
-  // Find the Next page link
-  const nextHref = $("li.next a").attr("href");
+        allBookLinks.push(absoluteUrl);
+      }
+    });
 
-  console.log("Next page link:", nextHref);
+    // Find the site's own Next link
+    const nextHref = $("li.next a").attr("href");
 
-  // Convert Next link to absolute URL
-  if (nextHref) {
-    const nextPageUrl = new URL(nextHref, currentPageUrl).href;
+    // Prepare the next page URL
+    if (nextHref) {
+      currentPageUrl = new URL(
+        nextHref,
+        currentPageUrl
+      ).href;
+    } else {
+      currentPageUrl = null;
+    }
 
-    console.log("Next page URL:", nextPageUrl);
+    pageCount++;
   }
+
+  // Remove duplicates
+  const uniqueBookLinks = [...new Set(allBookLinks)];
+
+  console.log("\n--- SUMMARY ---");
+  console.log(`catalogue_pages=${pageCount}`);
+  console.log(`discovered=${allBookLinks.length}`);
+  console.log(`unique_urls=${uniqueBookLinks.length}`);
 }
 
 main();
