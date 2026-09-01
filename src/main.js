@@ -31,7 +31,7 @@ async function fetchCataloguePage(pageUrl) {
 
     return html;
   }
-
+await sleep(DELAY_MS);
   console.log(`FETCH: ${pageUrl}`);
 
   // Create cache folder if needed
@@ -61,7 +61,7 @@ async function fetchCataloguePage(pageUrl) {
 
     // Save page in cache
     fs.writeFileSync(cacheFile, html, "utf-8");
-
+    
     console.log(`Status: ${response.status}`);
     console.log(`Response size: ${html.length} bytes`);
 
@@ -76,8 +76,43 @@ async function fetchCataloguePage(pageUrl) {
 
 
 
+const DELAY_MS = 500;
+
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+
+
 async function fetchBookPage(bookUrl) {
-  console.log(`\nFETCHING BOOK: ${bookUrl}`);
+  // Create cache folder if needed
+  fs.mkdirSync(CACHE_DIR, { recursive: true });
+
+  // Create a unique cache file name for this book
+  const url = new URL(bookUrl);
+
+  const folderName = url.pathname
+    .split("/")
+    .filter(Boolean)
+    .slice(-2, -1)[0];
+
+  const cacheFile = path.join(
+    CACHE_DIR,
+    `book-${folderName}.html`
+  );
+
+  // Check cache first
+  if (fs.existsSync(cacheFile)) {
+    const html = fs.readFileSync(cacheFile, "utf-8");
+
+    console.log(`CACHE HIT: ${bookUrl}`);
+
+    return html;
+  }
+await sleep(DELAY_MS);
+  console.log(`FETCHING BOOK: ${bookUrl}`);
 
   const controller = new AbortController();
 
@@ -93,11 +128,15 @@ async function fetchBookPage(bookUrl) {
       signal: controller.signal,
     });
 
+    // Only accept status 200
     if (response.status !== 200) {
       throw new Error(`Fetch failed with status: ${response.status}`);
     }
 
     const html = await response.text();
+
+    // Save book HTML in cache
+    fs.writeFileSync(cacheFile, html, "utf-8");
 
     console.log(`Status: ${response.status}`);
     console.log(`Response size: ${html.length} bytes`);
@@ -117,9 +156,14 @@ function extractBookDetails(bookHtml, productUrl, sourcePage) {
 
   const title = $(".product_main h1").text().trim();
 
-  const priceText = $(".product_main .price_color")
-    .text()
-    .trim();
+ // Price
+const priceText = $(".product_main .price_color")
+  .text()
+  .trim();
+
+const priceGbp = Number(
+  priceText.replace("£", "")
+);
 
   const availabilityText = $(".product_main .availability")
     .text()
@@ -139,16 +183,17 @@ function extractBookDetails(bookHtml, productUrl, sourcePage) {
     ? descriptionElement.text().trim()
     : null;
 
-  return {
-    title,
-    product_url: productUrl,
-    price_text: priceText,
-    availability_text: availabilityText,
-    rating_text: ratingText,
-    description,
-    source_page: sourcePage,
-    fetched_at: new Date().toISOString(),
-  };
+ return {
+  title,
+  product_url: productUrl,
+  price_text: priceText,
+  price_gbp: priceGbp,
+  availability_text: availabilityText,
+  rating_text: ratingText,
+  description,
+  source_page: sourcePage,
+  fetched_at: new Date().toISOString(),
+};
 }
 
 async function main() {
