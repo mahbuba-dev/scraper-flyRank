@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const cheerio = require("cheerio");
+const { z } = require("zod");
 
 const START_URL =
   "https://books.toscrape.com/catalogue/page-1.html";
@@ -8,6 +9,27 @@ const START_URL =
 const CACHE_DIR = path.join(__dirname, "..", "cache");
 
 const USER_AGENT = "FlyRankInternship-A9/1.0";
+
+const BookSchema = z.object({
+  title: z.string().min(1),
+
+  product_url: z.string().url(),
+
+  price_text: z.string().min(1),
+
+  price_gbp: z.number().positive(),
+
+  availability_text: z.string().min(1),
+
+  rating_text: z.string().nullable(),
+
+  description: z.string().nullable(),
+
+  source_page: z.string().url(),
+
+  fetched_at: z.string(),
+});
+
 
 function getCacheFile(pageUrl) {
   const url = new URL(pageUrl);
