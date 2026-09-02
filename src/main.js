@@ -50,57 +50,110 @@ async function fetchCataloguePage(pageUrl) {
   // Check cache first
   if (fs.existsSync(cacheFile)) {
     const html = fs.readFileSync(cacheFile, "utf-8");
-     cacheHits++;
+
+    cacheHits++;
 
     console.log("CACHE HIT");
     console.log(`Response size: ${html.length} bytes`);
 
     return html;
   }
-await sleep(DELAY_MS);
-  console.log(`FETCH: ${pageUrl}`);
 
-  // Create cache folder if needed
-  fs.mkdirSync(CACHE_DIR, { recursive: true });
+  // Maximum 2 attempts:
+  // First attempt + 1 retry
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    // Wait only before a real request
+    await sleep(DELAY_MS);
 
-  // Create timeout controller
-  const controller = new AbortController();
+    console.log(
+      `FETCH (attempt ${attempt}): ${pageUrl}`
+    );
 
-  const timeoutId = setTimeout(() => {
-    controller.abort();
-  }, 10000);
+    const controller = new AbortController();
 
-  try {
-    pagesFetched++;
-    const response = await fetch(pageUrl, {
-      headers: {
-        "User-Agent": USER_AGENT,
-      },
-      signal: controller.signal,
-    });
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, 10000);
 
-    // Only accept successful response
-    if (response.status !== 200) {
-      throw new Error(`Fetch failed with status: ${response.status}`);
+    try {
+      pagesFetched++;
+
+      const response = await fetch(pageUrl, {
+        headers: {
+          "User-Agent": USER_AGENT,
+        },
+        signal: controller.signal,
+      });
+
+      // Success
+      if (response.status === 200) {
+        const html = await response.text();
+
+        fs.mkdirSync(CACHE_DIR, { recursive: true });
+
+        fs.writeFileSync(cacheFile, html, "utf-8");
+
+        console.log(`Status: ${response.status}`);
+        console.log(`Response size: ${html.length} bytes`);
+
+        return html;
+      }
+
+      // Do not retry 403 or 404
+      if (
+        response.status === 403 ||
+        response.status === 404
+      ) {
+        console.error(
+          `Catalogue fetch failed with status: ${response.status}`
+        );
+
+        return null;
+      }
+
+      // Retry only 5xx errors
+      if (response.status >= 500 && response.status <= 599) {
+        console.error(
+          `Server error: ${response.status}`
+        );
+
+        if (attempt === 1) {
+          console.log("Retrying once after 1 second...");
+          await sleep(1000);
+          continue;
+        }
+
+        return null;
+      }
+
+      // Other errors
+      console.error(
+        `Catalogue fetch failed with status: ${response.status}`
+      );
+
+      return null;
+
+    } catch (error) {
+      // Timeout or network error
+      console.error(
+        `Request error: ${error.name} - ${error.message}`
+      );
+
+      if (attempt === 1) {
+        console.log("Retrying once after 1 second...");
+        await sleep(1000);
+        continue;
+      }
+
+      return null;
+
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    const html = await response.text();
-
-    // Save page in cache
-    fs.writeFileSync(cacheFile, html, "utf-8");
-    
-    console.log(`Status: ${response.status}`);
-    console.log(`Response size: ${html.length} bytes`);
-
-    return html;
-  } catch (error) {
-    console.error("Error:", error.message);
-    return null;
-  } finally {
-    clearTimeout(timeoutId);
   }
-}
 
+  return null;
+}
 
 
 const DELAY_MS = 500;
