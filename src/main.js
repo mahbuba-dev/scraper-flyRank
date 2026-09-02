@@ -7,6 +7,7 @@ const START_URL =
   "https://books.toscrape.com/catalogue/page-1.html";
 
 const CACHE_DIR = path.join(__dirname, "..", "cache");
+const OUTPUT_DIR = path.join(__dirname, "..", "output");
 
 const USER_AGENT = "FlyRankInternship-A9/1.0";
 
@@ -269,7 +270,11 @@ async function main() {
 
   // Remove duplicates
   const uniqueBookLinks = [...new Set(allBookLinks)];
-
+// Add one fake URL only for failure testing
+const bookUrlsToProcess = [
+  ...uniqueBookLinks,
+  "https://books.toscrape.com/catalogue/fake-book-does-not-exist/index.html",
+];
   console.log("\n--- SUMMARY ---");
   console.log(`catalogue_pages=${pageCount}`);
   console.log(`discovered=${allBookLinks.length}`);
@@ -279,26 +284,79 @@ console.log(uniqueBookLinks[0]);
 
 
 const rawRecords = [];
+const validRecords = [];
+const invalidRecords = [];
+let failedPages = 0;
 
-for (const bookUrl of uniqueBookLinks) {
+for (const bookUrl of bookUrlsToProcess) {
   const bookHtml = await fetchBookPage(bookUrl);
 
-  if (bookHtml) {
-    const rawRecord = extractBookDetails(
-      bookHtml,
-      bookUrl,
-      START_URL
-    );
+  // If the page failed, count it and continue
+  if (!bookHtml) {
+    failedPages++;
 
-    rawRecords.push(rawRecord);
+    console.log(`FAILED: ${bookUrl}`);
 
-    console.log("\n--- BOOK ---");
-    console.log(rawRecord.title);
+    continue;
+  }
+
+  const rawRecord = extractBookDetails(
+    bookHtml,
+    bookUrl,
+    START_URL
+  );
+
+  rawRecords.push(rawRecord);
+
+  // Validate the record
+  const result = BookSchema.safeParse(rawRecord);
+
+  if (result.success) {
+    validRecords.push(result.data);
+
+    console.log(`VALID: ${rawRecord.title}`);
+  } else {
+    invalidRecords.push({
+      record: rawRecord,
+      reason: result.error.issues,
+    });
+
+    console.log(`INVALID: ${rawRecord.title}`);
   }
 }
-
+console.log("\n--- VALIDATION SUMMARY ---");
+console.log(`Raw records: ${rawRecords.length}`);
+console.log(`Valid records: ${validRecords.length}`);
+console.log(`Invalid records: ${invalidRecords.length}`);
 console.log("\n--- FINAL SUMMARY ---");
 console.log(`detail_pages=${rawRecords.length}`);
+console.log(`Failed pages: ${failedPages}`);
+
+
+// Create output folder if needed
+fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+
+// Save valid records
+const booksFile = path.join(OUTPUT_DIR, "books.json");
+
+fs.writeFileSync(
+  booksFile,
+  JSON.stringify(validRecords, null, 2),
+  "utf-8"
+);
+
+// Save invalid records
+const errorsFile = path.join(OUTPUT_DIR, "errors.json");
+
+fs.writeFileSync(
+  errorsFile,
+  JSON.stringify(invalidRecords, null, 2),
+  "utf-8"
+);
+
+console.log("\n--- FILES SAVED ---");
+console.log(`books.json: ${validRecords.length} records`);
+console.log(`errors.json: ${invalidRecords.length} records`);
 
 }
 
