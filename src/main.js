@@ -10,6 +10,8 @@ const CACHE_DIR = path.join(__dirname, "..", "cache");
 const OUTPUT_DIR = path.join(__dirname, "..", "output");
 
 const USER_AGENT = "FlyRankInternship-A9/1.0";
+let cacheHits = 0;
+let pagesFetched = 0;
 
 const BookSchema = z.object({
   title: z.string().min(1),
@@ -48,6 +50,7 @@ async function fetchCataloguePage(pageUrl) {
   // Check cache first
   if (fs.existsSync(cacheFile)) {
     const html = fs.readFileSync(cacheFile, "utf-8");
+     cacheHits++;
 
     console.log("CACHE HIT");
     console.log(`Response size: ${html.length} bytes`);
@@ -68,6 +71,7 @@ await sleep(DELAY_MS);
   }, 10000);
 
   try {
+    pagesFetched++;
     const response = await fetch(pageUrl, {
       headers: {
         "User-Agent": USER_AGENT,
@@ -110,10 +114,8 @@ function sleep(ms) {
 
 
 async function fetchBookPage(bookUrl) {
-  // Create cache folder if needed
   fs.mkdirSync(CACHE_DIR, { recursive: true });
 
-  // Create a unique cache file name for this book
   const url = new URL(bookUrl);
 
   const folderName = url.pathname
@@ -130,49 +132,105 @@ async function fetchBookPage(bookUrl) {
   if (fs.existsSync(cacheFile)) {
     const html = fs.readFileSync(cacheFile, "utf-8");
 
+    cacheHits++;
+
     console.log(`CACHE HIT: ${bookUrl}`);
 
     return html;
   }
-await sleep(DELAY_MS);
-  console.log(`FETCHING BOOK: ${bookUrl}`);
 
-  const controller = new AbortController();
+  // Maximum 2 attempts:
+  // First attempt + 1 retry
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    await sleep(DELAY_MS);
 
-  const timeoutId = setTimeout(() => {
-    controller.abort();
-  }, 10000);
+    console.log(
+      `FETCHING BOOK (attempt ${attempt}): ${bookUrl}`
+    );
 
-  try {
-    const response = await fetch(bookUrl, {
-      headers: {
-        "User-Agent": USER_AGENT,
-      },
-      signal: controller.signal,
-    });
+    const controller = new AbortController();
 
-    // Only accept status 200
-    if (response.status !== 200) {
-      throw new Error(`Fetch failed with status: ${response.status}`);
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, 10000);
+
+    try {
+      pagesFetched++;
+
+      const response = await fetch(bookUrl, {
+        headers: {
+          "User-Agent": USER_AGENT,
+        },
+        signal: controller.signal,
+      });
+
+      // Success
+      if (response.status === 200) {
+        const html = await response.text();
+
+        fs.writeFileSync(cacheFile, html, "utf-8");
+
+        console.log(`Status: ${response.status}`);
+        console.log(`Response size: ${html.length} bytes`);
+
+        return html;
+      }
+
+      // Do NOT retry 403 or 404
+      if (
+        response.status === 403 ||
+        response.status === 404
+      ) {
+        console.error(
+          `Book fetch failed with status: ${response.status}`
+        );
+
+        return null;
+      }
+
+      // Retry only 5xx errors
+      if (response.status >= 500 && response.status <= 599) {
+        console.error(
+          `Server error: ${response.status}`
+        );
+
+        if (attempt === 1) {
+          console.log("Retrying once after 1 second...");
+          await sleep(1000);
+          continue;
+        }
+
+        return null;
+      }
+
+      // Other errors: stop
+      console.error(
+        `Book fetch failed with status: ${response.status}`
+      );
+
+      return null;
+
+    } catch (error) {
+      // Timeout or network error
+      console.error(
+        `Request error: ${error.name} - ${error.message}`
+      );
+
+      if (attempt === 1) {
+        console.log("Retrying once after 1 second...");
+        await sleep(1000);
+        continue;
+      }
+
+      return null;
+
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    const html = await response.text();
-
-    // Save book HTML in cache
-    fs.writeFileSync(cacheFile, html, "utf-8");
-
-    console.log(`Status: ${response.status}`);
-    console.log(`Response size: ${html.length} bytes`);
-
-    return html;
-  } catch (error) {
-    console.error("Book fetch error:", error.message);
-    return null;
-  } finally {
-    clearTimeout(timeoutId);
   }
-}
 
+  return null;
+}
 
 function extractBookDetails(bookHtml, productUrl, sourcePage) {
   const $ = cheerio.load(bookHtml);
@@ -220,6 +278,8 @@ const priceGbp = Number(
 }
 
 async function main() {
+  const startTime = new Date();
+const startTimestamp = startTime.toISOString();
   let currentPageUrl = START_URL;
   let pageCount = 0;
 
@@ -357,6 +417,37 @@ fs.writeFileSync(
 console.log("\n--- FILES SAVED ---");
 console.log(`books.json: ${validRecords.length} records`);
 console.log(`errors.json: ${invalidRecords.length} records`);
+
+
+const endTime = new Date();
+
+const durationMs = endTime - startTime;
+
+const runReport = {
+  start_time: startTimestamp,
+  duration_ms: durationMs,
+  pages_fetched: pagesFetched,
+  cache_hits: cacheHits,
+  catalogue_pages: pageCount,
+  detail_pages: rawRecords.length,
+  valid_records: validRecords.length,
+  invalid_records: invalidRecords.length,
+  failed_pages: failedPages,
+};
+
+const reportFile = path.join(
+  OUTPUT_DIR,
+  "run-report.json"
+);
+
+fs.writeFileSync(
+  reportFile,
+  JSON.stringify(runReport, null, 2),
+  "utf-8"
+);
+
+console.log("\n--- RUN REPORT ---");
+console.log(runReport);
 
 }
 
